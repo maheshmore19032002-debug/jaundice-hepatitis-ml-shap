@@ -1,0 +1,45 @@
+﻿# Python environments and cache
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Raw and processed research data
+data/
+*.dta
+*.sav
+*.sas7bdat
+*.csv
+*.xlsx
+*.xls
+
+# Model files and checkpoints
+*.joblib
+*.pkl
+*.pickle
+*.model
+*.pt
+*.pth
+*.h5
+*.keras
+*.onnx
+
+# Generated outputs: review selected files before publishing
+outputs/
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
