@@ -6,6 +6,7 @@ Purpose:
 - Read Stata metadata without loading the full dataset into memory.
 - Export variable names and labels.
 - Check whether the study variables exist.
+- Export category/value labels, including state names.
 - Save a metadata summary for reproducibility.
 """
 
@@ -21,9 +22,7 @@ import pyreadstat
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DATA_PATH = Path(
-    Path("data/raw/data_working.dta")
-)
+DATA_PATH = PROJECT_ROOT / "data" / "raw" / "data_working.dta"
 
 REPORT_DIR = PROJECT_ROOT / "outputs" / "reports"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,6 +43,7 @@ PREDICTORS = [
     "mpce_quintile",         # MPCE quintile
     "hc102",                 # Health insurance
     "residence",             # Rural/urban residence
+    "stateid",               # State/UT identifier
 ]
 
 REQUIRED_VARIABLES = [OUTCOME] + PREDICTORS
@@ -61,10 +61,10 @@ def main():
     if not DATA_PATH.exists():
         raise FileNotFoundError(
             f"Dataset not found at:\n{DATA_PATH}\n"
-            "Update DATA_PATH at the beginning of this script."
+            "Place data_working.dta inside the project's data/raw folder."
         )
 
-    print(f"\nDataset: {DATA_PATH.name}")
+    print(f"\nDataset: {DATA_PATH}")
     print("Reading metadata only; the full dataset will not be loaded...")
 
     _, metadata = pyreadstat.read_dta(
@@ -73,9 +73,8 @@ def main():
     )
 
     variable_names = metadata.column_names
-    variable_labels = metadata.column_labels or []
+    variable_labels = list(metadata.column_labels or [])
 
-    # Ensure each variable has a corresponding label.
     if len(variable_labels) < len(variable_names):
         variable_labels += [""] * (
             len(variable_names) - len(variable_labels)
@@ -95,14 +94,17 @@ def main():
     )
 
     metadata_file = REPORT_DIR / "variable_metadata.csv"
-    metadata_df.to_csv(metadata_file, index=False, encoding="utf-8-sig")
+    metadata_df.to_csv(
+        metadata_file,
+        index=False,
+        encoding="utf-8-sig"
+    )
 
     # --------------------------------------------------
     # 5. CHECK REQUIRED VARIABLES
     # --------------------------------------------------
 
     available_variables = set(variable_names)
-
     availability = []
 
     for variable in REQUIRED_VARIABLES:
@@ -133,55 +135,9 @@ def main():
     )
 
     # --------------------------------------------------
-    # 6. SAVE DATASET SUMMARY
+    # 6. EXPORT CATEGORY / VALUE LABELS
     # --------------------------------------------------
 
-    summary = {
-        "dataset_file": DATA_PATH.name,
-        "dataset_label": getattr(metadata, "file_label", None),
-        "number_of_rows": getattr(metadata, "number_rows", None),
-        "number_of_columns": len(variable_names),
-        "required_variable_count": len(REQUIRED_VARIABLES),
-        "required_variables_found": int(
-            availability_df["available"].sum()
-        ),
-        "required_variables_missing": availability_df.loc[
-            ~availability_df["available"], "variable_name"
-        ].tolist(),
-        "metadata_only": True,
-    }
-
-    summary_file = REPORT_DIR / "dataset_metadata_summary.json"
-
-    with open(summary_file, "w", encoding="utf-8") as file:
-        json.dump(summary, file, indent=4, ensure_ascii=False, default=str)
-
-    # --------------------------------------------------
-    # 7. DISPLAY RESULTS
-    # --------------------------------------------------
-
-    print("\n--- DATASET SUMMARY ---")
-    print(f"Rows: {summary['number_of_rows']}")
-    print(f"Columns: {summary['number_of_columns']}")
-
-    print("\n--- REQUIRED VARIABLE CHECK ---")
-    print(availability_df.to_string(index=False))
-
-    print("\n--- OUTPUT FILES ---")
-    print(f"Variable metadata: {metadata_file}")
-    print(f"Required variable check: {availability_file}")
-    print(f"Dataset summary: {summary_file}")
-
-    if summary["required_variables_missing"]:
-        print("\nWARNING: Some required variables were not found.")
-        print("Review the variable names and metadata before proceeding.")
-    else:
-        print("\nSUCCESS: All required variables were found.")
-
-    print("\nScript 01 completed.")
-
-    
-    # Export actual category/value labels from LASI metadata
     value_label_rows = []
 
     for variable, labels in metadata.variable_value_labels.items():
@@ -208,7 +164,84 @@ def main():
         encoding="utf-8-sig",
     )
 
-    print(f"Category/value labels: {value_labels_file}")
+    # State-specific label report
+    state_labels_df = value_labels_df.loc[
+        value_labels_df["variable_name"] == "stateid"
+    ].copy()
+
+    state_labels_file = REPORT_DIR / "state_value_labels.csv"
+    state_labels_df.to_csv(
+        state_labels_file,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    # --------------------------------------------------
+    # 7. SAVE DATASET SUMMARY
+    # --------------------------------------------------
+
+    summary = {
+        "dataset_file": DATA_PATH.name,
+        "dataset_label": getattr(metadata, "file_label", None),
+        "number_of_rows": getattr(metadata, "number_rows", None),
+        "number_of_columns": len(variable_names),
+        "required_variable_count": len(REQUIRED_VARIABLES),
+        "required_variables_found": int(
+            availability_df["available"].sum()
+        ),
+        "required_variables_missing": availability_df.loc[
+            ~availability_df["available"], "variable_name"
+        ].tolist(),
+        "state_variable": "stateid",
+        "state_labels_exported": len(state_labels_df),
+        "metadata_only": True,
+    }
+
+    summary_file = REPORT_DIR / "dataset_metadata_summary.json"
+
+    with open(summary_file, "w", encoding="utf-8") as file:
+        json.dump(
+            summary,
+            file,
+            indent=4,
+            ensure_ascii=False,
+            default=str
+        )
+
+    # --------------------------------------------------
+    # 8. DISPLAY RESULTS
+    # --------------------------------------------------
+
+    print("\n--- DATASET SUMMARY ---")
+    print(f"Rows: {summary['number_of_rows']}")
+    print(f"Columns: {summary['number_of_columns']}")
+    print(f"Required variables: {summary['required_variable_count']}")
+    print(f"State labels found: {summary['state_labels_exported']}")
+
+    print("\n--- REQUIRED VARIABLE CHECK ---")
+    print(availability_df.to_string(index=False))
+
+    print("\n--- STATE VALUE LABELS ---")
+    if state_labels_df.empty:
+        print("WARNING: No value labels found for stateid.")
+    else:
+        print(state_labels_df.to_string(index=False))
+
+    print("\n--- OUTPUT FILES ---")
+    print(f"Variable metadata: {metadata_file}")
+    print(f"Required variable check: {availability_file}")
+    print(f"All value labels: {value_labels_file}")
+    print(f"State value labels: {state_labels_file}")
+    print(f"Dataset summary: {summary_file}")
+
+    if summary["required_variables_missing"]:
+        print("\nWARNING: Some required variables were not found.")
+        print("Review variable names before proceeding.")
+    else:
+        print("\nSUCCESS: All required variables were found.")
+
+    print("\nScript 01 completed.")
+
 
 if __name__ == "__main__":
     main()
